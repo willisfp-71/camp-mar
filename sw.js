@@ -1,5 +1,5 @@
 // Camp MAR service worker — caches the app so it runs fully offline after first load
-const CACHE = 'camp-mar-v1';
+const CACHE = 'camp-mar-v2';
 const FILES = ['./', './camp_mar.html'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

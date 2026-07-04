@@ -241,7 +241,7 @@ function closeModal(){document.getElementById('modalBg').classList.remove('show'
 function showModal(html){document.getElementById('modalBody').innerHTML=html;document.getElementById('modalBg').classList.add('show');}
 /* ================= Setup view ================= */
 function vSetup(){
-  const c=S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{}};
+  const c=S._draftCamp||S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{}};
   const two=c.nurses===2;
   let cabRows='';
   if(two){
@@ -564,7 +564,9 @@ function fiveRights(cid,mid,passK,dateISO,prnBlocked){
     ['Right route',esc(m.route)],
     ['Right time',passK==='prn'?`PRN — min ${m.prnHours} h between doses`:`${passOf(passK)?passOf(passK).label:passK}${wt?' · '+wt.replace(':',''):''} on ${fmtDate(dateISO)}`]
   ];
-  showModal(`<h2>✅ Five Rights check</h2>
+  showModal(`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px">
+      <h2 style="margin:0">✅ Five Rights check</h2>
+      <button class="btn sec sm" onclick="frAll()">✓ Select all</button></div>
     ${c.allergies?`<div class="warn-box">⚠️ Allergies: ${esc(c.allergies)}</div>`:''}
     ${prnBlocked?`<div class="err-box">⛔ Minimum PRN interval has NOT elapsed. Administering now overrides the interval and will be flagged in the record.</div>`:''}
     ${ws==='closed'?`<div class="warn-box">⏰ The administration window for this pass has closed (opens 1 h before, closes 2 h after pass time). This will be recorded as a late administration.</div>`:''}
@@ -580,6 +582,10 @@ function fiveRights(cid,mid,passK,dateISO,prnBlocked){
       <button class="btn sec" onclick="closeModal()">Cancel</button>
       <button class="btn" id="frGo" disabled onclick="confirmGive('${cid}','${mid}','${passK}','${dateISO}',${prnBlocked},'${ws||''}')">Administer — ${esc(nurse)}</button>
     </div>`);
+}
+function frAll(){
+  document.querySelectorAll('#modalBody .fr input[type=checkbox]').forEach(b=>{b.checked=true;b.closest('.fr').classList.add('ok');});
+  frCheck();
 }
 function frCheck(){
   const boxes=document.querySelectorAll('#modalBody .fr input[type=checkbox]');
