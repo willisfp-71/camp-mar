@@ -81,6 +81,9 @@ table.rpt th{background:#eef2f5}
 .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .seg button{border:none;background:#fff;padding:8px 16px;font-size:.82rem;min-height:40px}
 .seg button.on{background:var(--brand);color:#fff;font-weight:700}
+.cab-grid{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 2px}
+.cab-chip{border:1px solid var(--line);background:#fff;border-radius:18px;padding:8px 12px;font-size:.78rem;font-weight:600;min-height:40px}
+.cab-chip.on{color:#fff}
 .warn-box{background:#fdf1d6;border:1px solid #eccb7c;border-radius:9px;padding:10px 12px;font-size:.82rem;margin:8px 0}
 .err-box{background:#fbdcdb;border:1px solid #e8a5a3;border-radius:9px;padding:10px 12px;font-size:.82rem;margin:8px 0}
 .ok-box{background:#d7f0dd;border:1px solid #9ed3ab;border-radius:9px;padding:10px 12px;font-size:.82rem;margin:8px 0}
@@ -128,7 +131,10 @@ table.rpt th{background:#eef2f5}
 /* ================= Constants ================= */
 const CABINS=[
  {n:'AQUA',c:'#00a6a0'},{n:'RED',c:'#d23c35'},{n:'BLUE',c:'#2274c8'},{n:'GREEN',c:'#2c9e4b'},
- {n:'ORANGE',c:'#e8761a'},{n:'PURPLE',c:'#8e44ad'},{n:'YELLOW',c:'#d4a900'},{n:'PINK',c:'#d63b7f'}
+ {n:'ORANGE',c:'#e8761a'},{n:'PURPLE',c:'#8e44ad'},{n:'YELLOW',c:'#d4a900'},{n:'PINK',c:'#d63b7f'},
+ {n:'NAVY',c:'#1f3a93'},{n:'TEAL',c:'#0b7285'},{n:'LIME',c:'#74b816'},{n:'BROWN',c:'#8d5524'},
+ {n:'CORAL',c:'#f0655a'},{n:'MAGENTA',c:'#c02690'},{n:'OLIVE',c:'#6b8e23'},{n:'MAROON',c:'#7d1f2e'},
+ {n:'SKY',c:'#3aa6dd'},{n:'GOLD',c:'#b8860b'},{n:'SLATE',c:'#5c6b7a'},{n:'BLACK',c:'#24292e'}
 ];
 const SESSIONS=['RFKC','TRAC-Girls','TRAC-Boys','Custom'];
 const PASSES=[
@@ -145,7 +151,7 @@ const ROUTES=['Oral','Topical','Inhaled','Ophthalmic','Otic','Nasal','Subcutaneo
 /* ================= State & Storage (IndexedDB) ================= */
 let S=null, curView='pass', db=null;
 function uid(){return (crypto.randomUUID?crypto.randomUUID():'id-'+Date.now()+'-'+Math.random().toString(36).slice(2));}
-function blankState(){return {v:2,deviceId:uid(),camp:null,campers:[],meds:[],log:[],mergeInfo:null,conflicts:[]};}
+function blankState(){return {v:2,deviceId:uid(),camp:null,campers:[],meds:[],log:[],mergeInfo:null,conflicts:[],passCabins:{}};}
 function openDB(){return new Promise((res,rej)=>{
   const r=indexedDB.open('campMAR',1);
   r.onupgradeneeded=e=>{e.target.result.createObjectStore('kv');};
@@ -159,6 +165,8 @@ async function boot(){
   try{db=await openDB();const st=await idbGet('state');S=st||blankState();}
   catch(e){S=blankState();toast('⚠️ Storage unavailable — data will not persist');}
   if(!S.deviceId)S.deviceId=uid();
+  if(!S.passCabins)S.passCabins={};
+  if(S.camp&&!S.camp.cabins)S.camp.cabins=CABINS.slice(0,8).map(c=>c.n);
   renderHeader();
   go(S.camp?'pass':'setup');
 }
@@ -189,10 +197,19 @@ function myNurseName(){
   if(!S.camp)return sessionStorage.getItem('nurse')||'';
   return S.camp.nurses===2?(S.camp.nurseNames[S.camp.role]||''):(S.camp.nurseNames.A||'');
 }
+function activeCabinNames(){
+  let list=(S.camp&&S.camp.cabins&&S.camp.cabins.length)?S.camp.cabins.slice():CABINS.slice(0,8).map(c=>c.n);
+  activeCampers().forEach(c=>{if(c.cabin&&!list.includes(c.cabin))list.push(c.cabin);});
+  return CABINS.map(c=>c.n).filter(n=>list.includes(n));
+}
 function myCabins(){
-  if(!S.camp)return CABINS.map(c=>c.n);
-  if(S.camp.nurses!==2)return CABINS.map(c=>c.n);
-  return CABINS.map(c=>c.n).filter(n=>(S.camp.cabinAssign[n]||'A')===S.camp.role);
+  if(!S.camp||S.camp.nurses!==2)return activeCabinNames();
+  return activeCabinNames().filter(n=>(S.camp.cabinAssign[n]||'A')===S.camp.role);
+}
+function cabinsForPass(dateISO,passK){
+  if(!S.camp||S.camp.nurses!==2)return activeCabinNames();
+  const o=(S.passCabins||{})[dateISO+'|'+passK];
+  return o?o.filter(n=>activeCabinNames().includes(n)):myCabins();
 }
 function camperCabinMine(c){return myCabins().includes(c.cabin);}
 function activeCampers(){return S.campers.filter(c=>c.active!==false);}
@@ -241,11 +258,16 @@ function closeModal(){document.getElementById('modalBg').classList.remove('show'
 function showModal(html){document.getElementById('modalBody').innerHTML=html;document.getElementById('modalBg').classList.add('show');}
 /* ================= Setup view ================= */
 function vSetup(){
-  const c=S._draftCamp||S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{}};
+  const c=S._draftCamp||S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{},cabins:CABINS.slice(0,8).map(x=>x.n)};
+  if(!c.cabins)c.cabins=CABINS.slice(0,8).map(x=>x.n);
   const two=c.nurses===2;
+  const cabinGrid=CABINS.map(cb=>{
+    const on=c.cabins.includes(cb.n);
+    return `<button class="cab-chip ${on?'on':''}" style="${on?'background:'+cb.c+';border-color:'+cb.c:''}" onclick="setCabToggle('${cb.n}')">${on?'✓ ':''}${cb.n}</button>`;
+  }).join('');
   let cabRows='';
   if(two){
-    cabRows=CABINS.map(cb=>{
+    cabRows=CABINS.filter(cb=>c.cabins.includes(cb.n)).map(cb=>{
       const who=c.cabinAssign[cb.n]||'A';
       return `<div class="cab-assign"><span><span class="cabin-dot" style="background:${cb.c}"></span><b>${cb.n}</b></span>
         <span class="seg">
@@ -265,6 +287,8 @@ function vSetup(){
       <div><label>Start date</label><input type="date" id="suStart" value="${c.start}"></div>
       <div><label>End date</label><input type="date" id="suEnd" value="${c.end}"></div>
     </div>
+    <label>Cabins for this camp — ${c.cabins.length} selected (tap to toggle, up to 20)</label>
+    <div class="cab-grid">${cabinGrid}</div>
     <label>Number of nurses for this camp</label>
     <div class="seg" style="width:max-content">
       <button class="${!two?'on':''}" onclick="setNurses(1)">1 nurse</button>
@@ -280,8 +304,8 @@ function vSetup(){
         <div><label>Nurse A name</label><input id="suNA" value="${esc(c.nurseNames.A)}"></div>
         <div><label>Nurse B name</label><input id="suNB" value="${esc(c.nurseNames.B)}"></div>
       </div>
-      <h3>Cabin assignment</h3>
-      <p class="muted">Each nurse owns whole cabins. Med Pass and batch labels on this device show only Device ${c.role}'s cabins. Set the SAME assignment on both devices.</p>
+      <h3>Default cabin assignment</h3>
+      <p class="muted">This is the DEFAULT split. At any med pass, either nurse can change which cabins her device covers for that pass using the 🏘 button in Med Pass. Set the SAME defaults on both devices.</p>
       ${cabRows}
     `:`
       <label>Nurse name</label><input id="suNA" value="${esc(c.nurseNames.A)}">
@@ -302,8 +326,9 @@ let _setupNurses=null,_setupRole=null;
 function setNurses(n){const c=grabSetup();c.nurses=n;S._draftCamp=c;go('setup');restoreDraft();}
 function setRole(r){const c=grabSetup();c.role=r;S._draftCamp=c;go('setup');restoreDraft();}
 function setCab(cabin,who){const c=grabSetup();c.cabinAssign[cabin]=who;S._draftCamp=c;go('setup');restoreDraft();}
+function setCabToggle(n){const c=grabSetup();if(!c.cabins)c.cabins=[];const i=c.cabins.indexOf(n);if(i>=0)c.cabins.splice(i,1);else c.cabins.push(n);S._draftCamp=c;go('setup');restoreDraft();}
 function grabSetup(){
-  const base=S._draftCamp||S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{}};
+  const base=S._draftCamp||S.camp||{name:'',session:'RFKC',start:todayISO(),end:todayISO(),nurses:1,role:'A',nurseNames:{A:'',B:''},cabinAssign:{},cabins:CABINS.slice(0,8).map(x=>x.n)};
   const c=JSON.parse(JSON.stringify(base));
   const g=id=>document.getElementById(id);
   if(g('suSession'))c.session=g('suSession').value;
@@ -329,7 +354,8 @@ function saveSetup(){
   if(!c.start||!c.end||c.end<c.start){toast('Check the camp dates');return;}
   if(c.nurses===2&&(!c.nurseNames.A.trim()||!c.nurseNames.B.trim())){toast('Enter both nurse names');return;}
   if(c.nurses===1&&!c.nurseNames.A.trim()){toast('Enter the nurse name');return;}
-  if(c.nurses===2)CABINS.forEach(cb=>{if(!c.cabinAssign[cb.n])c.cabinAssign[cb.n]='A';});
+  if(!c.cabins||!c.cabins.length){toast('Select at least one cabin');return;}
+  if(c.nurses===2)c.cabins.forEach(n=>{if(!c.cabinAssign[n])c.cabinAssign[n]='A';});
   S.camp=c;delete S._draftCamp;
   save();renderHeader();toast('Camp saved ✓');go('roster');
 }
@@ -348,7 +374,7 @@ function vRoster(){
   let html=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center">
     <h2>🧒 Roster (${activeCampers().length})</h2>
     <button class="btn sm" onclick="camperForm()">+ Add camper</button></div>`;
-  const order=CABINS.map(c=>c.n).concat(['—']);
+  const order=activeCabinNames().concat(['—']);
   order.forEach(cab=>{
     const kids=(byCabin[cab]||[]).sort((a,b)=>(a.lastName+a.firstName).localeCompare(b.lastName+b.firstName));
     if(!kids.length)return;
@@ -371,7 +397,7 @@ function vRoster(){
   return html;
 }
 function camperForm(id){
-  const c=id?findCamper(id):{firstName:'',lastName:'',dob:'',gender:'BOY',cabin:CABINS[0].n,allergies:'',notes:''};
+  const c=id?findCamper(id):{firstName:'',lastName:'',dob:'',gender:'BOY',cabin:activeCabinNames()[0]||CABINS[0].n,allergies:'',notes:''};
   showModal(`<h2>${id?'Edit':'Add'} camper</h2>
     <div class="row">
       <div><label>First name</label><input id="cfF" value="${esc(c.firstName)}"></div>
@@ -382,7 +408,7 @@ function camperForm(id){
       <div><label>Gender</label><select id="cfG"><option ${c.gender==='BOY'?'selected':''}>BOY</option><option ${c.gender==='GIRL'?'selected':''}>GIRL</option></select></div>
     </div>
     <label>Cabin</label>
-    <select id="cfC">${CABINS.map(cb=>`<option ${c.cabin===cb.n?'selected':''}>${cb.n}</option>`).join('')}</select>
+    <select id="cfC">${activeCabinNames().map(n=>`<option ${c.cabin===n?'selected':''}>${n}</option>`).join('')}</select>
     <label>Allergies</label><input id="cfA" value="${esc(c.allergies)}" placeholder="NKDA if none">
     <label>Notes</label><textarea id="cfN" rows="2">${esc(c.notes)}</textarea>
     <div class="row" style="margin-top:12px">
@@ -474,12 +500,13 @@ function vPass(){
   if(!S.camp)return `<div class="card"><p>Set up the camp first.</p><button class="btn" onclick="go('setup')">Go to Setup</button></div>`;
   const dates=campDates();
   if(!selDate||!dates.includes(selDate))selDate=dates.includes(todayISO())?todayISO():dates[0];
-  const mine=myCabins();
-  const kids=activeCampers().filter(c=>mine.includes(c.cabin));
+  const two=S.camp.nurses===2;
   let html=`<div class="chips">${dates.map(d=>`<button class="${d===selDate?'on':''}" onclick="selDate='${d}';go('pass')">${fmtDateShort(d)}</button>`).join('')}</div>`;
-  if(S.camp.nurses===2)html+=`<p class="muted" style="margin-bottom:6px">Device ${S.camp.role} — cabins: ${mine.join(', ')||'none assigned'}</p>`;
+  if(two)html+=`<p class="muted" style="margin-bottom:6px">Device ${S.camp.role} — default cabins: ${myCabins().join(', ')||'none'}. Tap 🏘 on any pass to change the split for that pass only.</p>`;
   // scheduled passes
   PASSES.forEach(p=>{
+    const cabs=cabinsForPass(selDate,p.k);
+    const kids=activeCampers().filter(c=>cabs.includes(c.cabin));
     // gather treatments for this pass
     const items=[];
     kids.forEach(c=>{
@@ -489,11 +516,15 @@ function vPass(){
         items.push({c,m});
       });
     });
-    if(!items.length)return;
+    const anyAll=two&&activeCampers().some(c=>medsFor(c.id).some(m=>!m.prn&&m.passes.includes(p.k)));
+    if(!items.length&&!anyAll)return;
     const t=p.k==='special'?null:p.t;
     const ws=p.k==='special'?null:windowState(selDate,p.t);
-    const stHtml=ws?`<span class="st ${ws}">${ws==='open'?'WINDOW OPEN':ws==='soon'?'UPCOMING':'WINDOW CLOSED'}</span>`:'';
-    html+=`<div class="pass-hd"><b>${p.label}${t?' · '+t.replace(':',''):''}</b>${selDate===todayISO()?stHtml:''}</div>`;
+    const stHtml=(ws&&selDate===todayISO())?`<span class="st ${ws}">${ws==='open'?'WINDOW OPEN':ws==='soon'?'UPCOMING':'WINDOW CLOSED'}</span>`:'';
+    const isCustom=!!(S.passCabins||{})[selDate+'|'+p.k];
+    const cabBtn=two?`<button class="btn sec sm" onclick="passCabinModal('${p.k}')">🏘${isCustom?' custom':''}</button>`:'';
+    html+=`<div class="pass-hd"><b>${p.label}${t?' · '+t.replace(':',''):''}</b><span style="display:flex;gap:6px;align-items:center">${stHtml}${cabBtn}</span></div>`;
+    if(!items.length){html+=`<p class="muted" style="margin:4px 0 10px">No cabins on this device for this pass — tap 🏘 to claim cabins.</p>`;}
     // group by cabin
     const byCab={};
     items.forEach(it=>{(byCab[it.c.cabin]=byCab[it.c.cabin]||[]).push(it);});
@@ -508,10 +539,14 @@ function vPass(){
     });
   });
   // PRN section
+  const prnCabs=cabinsForPass(selDate,'prn');
   const prnItems=[];
-  kids.forEach(c=>medsFor(c.id).forEach(m=>{if(m.prn)prnItems.push({c,m});}));
-  if(prnItems.length){
-    html+=`<div class="pass-hd"><b>PRN — as needed</b></div>`;
+  activeCampers().filter(c=>prnCabs.includes(c.cabin)).forEach(c=>medsFor(c.id).forEach(m=>{if(m.prn)prnItems.push({c,m});}));
+  const anyPrn=two&&activeCampers().some(c=>medsFor(c.id).some(m=>m.prn));
+  if(prnItems.length||anyPrn){
+    const prnCustom=!!(S.passCabins||{})[selDate+'|prn'];
+    html+=`<div class="pass-hd"><b>PRN — as needed</b>${two?`<button class="btn sec sm" onclick="passCabinModal('prn')">🏘${prnCustom?' custom':''}</button>`:''}</div>`;
+    if(!prnItems.length)html+=`<p class="muted" style="margin:4px 0 10px">No PRN cabins on this device — tap 🏘 to claim cabins.</p>`;
     prnItems.sort((a,b)=>(a.c.lastName+a.c.firstName).localeCompare(b.c.lastName+b.c.firstName));
     prnItems.forEach(({c,m})=>{
       const last=lastGiven(m.id);
@@ -530,7 +565,7 @@ function vPass(){
       </div>`;
     });
   }
-  if(!html.includes('med-line')&&!prnItems.length)html+=`<div class="card"><p class="muted">No treatments scheduled for the cabins on this device. Add campers and medications in the Roster tab.</p></div>`;
+  if(!html.includes('pass-hd'))html+=`<div class="card"><p class="muted">No treatments scheduled yet. Add campers and medications in the Roster tab.</p></div>`;
   return html;
 }
 function medLineHTML(c,m,passK,lg,wt){
@@ -638,6 +673,29 @@ function addLog(e){
   });
   save();
 }
+/* ================= Per-pass cabin split (2-nurse mode) ================= */
+function passCabinModal(passK){
+  const cur=cabinsForPass(selDate,passK);
+  const p=passK==='prn'?{label:'PRN'}:passOf(passK);
+  showModal(`<h2>🏘 Cabins for ${p.label} — ${fmtDateShort(selDate)}</h2>
+    <p class="muted">Check the cabins THIS device (Device ${S.camp.role}) covers for this pass. The other nurse's device should cover the rest. Applies to this date + pass only; other passes keep the default split.</p>
+    ${activeCabinNames().map(n=>`<div class="fr"><input type="checkbox" class="pcCab" value="${n}" ${cur.includes(n)?'checked':''}>
+      <div><span class="cabin-dot" style="background:${cabinColor(n)}"></span><b>${n}</b> <span class="muted">default: Nurse ${(S.camp.cabinAssign[n]||'A')}</span></div></div>`).join('')}
+    <div class="row" style="margin-top:12px">
+      <button class="btn sec" onclick="resetPassCabins('${passK}')">Reset to default</button>
+      <button class="btn" onclick="savePassCabins('${passK}')">Save split</button>
+    </div>`);
+}
+function savePassCabins(passK){
+  const sel=Array.from(document.querySelectorAll('.pcCab:checked')).map(x=>x.value);
+  S.passCabins=S.passCabins||{};
+  S.passCabins[selDate+'|'+passK]=sel;
+  save();closeModal();go('pass');toast('Cabin split saved for this pass');
+}
+function resetPassCabins(passK){
+  if(S.passCabins)delete S.passCabins[selDate+'|'+passK];
+  save();closeModal();go('pass');toast('Back to default split');
+}
 /* ================= Labels (DYMO 30324, portrait, content centered) ================= */
 let lblDate=null,lblPass='breakfast';
 function vLabels(){
@@ -647,7 +705,7 @@ function vLabels(){
   const batch=labelBatch(lblDate,lblPass);
   return `<div class="card">
     <h2>🏷️ Labels — DYMO 30324 (2⅛ × 2¾ in)</h2>
-    <p class="muted">One label per camper per pass. Content is centered vertically on the label.${S.camp.nurses===2?' Batch includes Device '+S.camp.role+'’s cabins only.':''}</p>
+    <p class="muted">One label per camper per pass. Content is centered vertically on the label.${S.camp.nurses===2?' Batch follows this device’s cabin split for the selected pass and date.':''}</p>
     <label>Date</label>
     <div class="chips">${dates.map(d=>`<button class="${d===lblDate?'on':''}" onclick="lblDate='${d}';go('labels')">${fmtDateShort(d)}</button>`).join('')}</div>
     <label>Pass</label>
@@ -664,7 +722,7 @@ function vLabels(){
   </div>`;
 }
 function labelBatch(dateISO,passK){
-  const mine=myCabins();
+  const mine=cabinsForPass(dateISO,passK);
   const kids=activeCampers().filter(c=>mine.includes(c.cabin));
   const out=[];
   kids.forEach(c=>{
